@@ -14,6 +14,7 @@ Please visit this [page](https://www.getlazarus.org/json/) for a complete guide 
 
 Initial fork implementing ...
 
+- Add [damoasda](https://github.com/damoasda) damoasda/unit-tests - source [nglthach](https://github.com/nglthach/JsonTools)
 - TJsonNode.KindAsString property - returns the TJsonNodeKind enum as a string ('nkObject', 'nkArray', 'nkBool', 'nkNull', 'nkNumber', 'nkString')
 - Apply [damoasda](https://github.com/damoasda) fix for #11 - Error while parsing \"\"
 

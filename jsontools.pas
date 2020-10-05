@@ -14,7 +14,7 @@ unit JsonTools;
 interface
 
 uses
-  Classes, SysUtils;
+  Classes, SysUtils, Typinfo;
 
 { EJsonException is the exception type used by TJsonNode. It is thrown
   during parse if the string is invalid json or if an attempt is made to
@@ -91,6 +91,7 @@ type
     procedure SetKind(Value: TJsonNodeKind);
     function GetName: string;
     procedure SetName(const Value: string);
+    function GetKindAsString: string;
     function GetValue: string;
     function GetCount: Integer;
     function GetAsJson: string;
@@ -154,6 +155,8 @@ type
 
       Note: Changes to Kind cause Value to be reset to a default value. }
     property Kind: TJsonNodeKind read FKind write SetKind;
+    { Return the node kind as a string }
+    property KindAsString: string read GetKindAsString;
     { Name is unique within the scope }
     property Name: string read GetName write SetName;
     { Value of the node in json e.g. '[]', '"hello\nworld!"', 'true', or '1.23e2' }
@@ -189,9 +192,9 @@ function JsonNumberValidate(const N: string): Boolean;
 function JsonStringValidate(const S: string): Boolean;
 { JsonStringEncode converts a pascal string to a json string }
 function JsonStringEncode(const S: string): string;
-{ JsonStringEncode converts a json string to a pascal string }
+{ JsonStringDecode converts a json string to a pascal string }
 function JsonStringDecode(const S: string): string;
-{ JsonStringEncode converts a json string to xml }
+{ JsonToXml converts a json string to xml }
 function JsonToXml(const S: string): string;
 
 implementation
@@ -314,8 +317,8 @@ begin
   end;
   if C^ = '"'  then
   begin
+    Inc(C);
     repeat
-      Inc(C);
       if C^ = '\' then
       begin
         Inc(C);
@@ -328,7 +331,9 @@ begin
             T.Kind := tkError;
             Exit(False);
           end;
-      end;
+      end
+      else if not (C^ in [#0, #10, #13, '"']) then
+        Inc(C);
     until C^ in [#0, #10, #13, '"'];
     if C^ = '"' then
     begin
@@ -724,6 +729,12 @@ begin
   else
     Result := FValue;
 end;
+
+function TJsonNode.GetKindAsString: string;
+begin
+  result := GetEnumName(TypeInfo(TJsonNodeKind), ord(FKind));
+end;
+
 
 function TJsonNode.GetAsJson: string;
 begin

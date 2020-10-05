@@ -48,9 +48,9 @@ type
     FNode: TJsonNode;
     FIndex: Integer;
   public
-    procedure Init(Node: TJsonNode);
-    function GetCurrent: TJsonNode;
-    function MoveNext: Boolean;
+    procedure Init(Node: TJsonNode); inline;
+    function GetCurrent: TJsonNode; inline;
+    function MoveNext: Boolean; inline;
     property Current: TJsonNode read GetCurrent;
   end;
 
@@ -80,7 +80,7 @@ type
     FName: string;
     FKind: TJsonNodeKind;
     FValue: string;
-    FList: TList;
+    FList: TFPList;
     procedure ParseObject(Node: TJsonNode; var C: PChar);
     procedure ParseArray(Node: TJsonNode; var C: PChar);
     procedure Error(const Msg: string = '');
@@ -104,6 +104,8 @@ type
     procedure SetAsString(const Value: string);
     function GetAsNumber: Double;
     procedure SetAsNumber(Value: Double);
+    function GetAsInteger: integer;
+    procedure SetAsInteger(AValue: integer);
   public
     { A parent node owns all children. Only destroy a node if it has no parent.
       To destroy a child node use Delete or Clear methods instead. }
@@ -112,9 +114,9 @@ type
     function GetEnumerator: TJsonNodeEnumerator;
     { Loading and saving methods }
     procedure LoadFromStream(Stream: TStream);
-    procedure SaveToStream(Stream: TStream);
+    procedure SaveToStream(Stream: TStream; Formatted:boolean=false);
     procedure LoadFromFile(const FileName: string);
-    procedure SaveToFile(const FileName: string);
+    procedure SaveToFile(const FileName: string; Formatted:boolean=false);
     { Convert a json string into a value or a collection of nodes. If the
       current node is root then the json must be an array or object. }
     procedure Parse(const Json: string);
@@ -144,7 +146,12 @@ type
     { Get a child node by name. If no node is found nil will be returned. }
     function Child(const Name: string): TJsonNode; overload;
     { Search for a node using a path string }
-    function Find(const Path: string): TJsonNode;
+    function Find(const Path: string; AllowCreate:boolean=false): TJsonNode;
+    { Search for a node using a path string, if found return AsString value, else default value }
+    function GetValueDef(const Path: string; _Default: string): String; overload;
+    function GetValueDef(const Path: string; _Default: boolean): boolean; overload;
+    function GetValueDef(const Path: string; _Default: integer): integer; overload;
+
     { Format the node and all its children as json }
     function ToString: string; override;
     { Root node is read only. A node the root when it has no parent. }
@@ -182,6 +189,7 @@ type
     property AsString: string read GetAsString write SetAsString;
     { Convert the node to a number }
     property AsNumber: Double read GetAsNumber write SetAsNumber;
+    property AsInteger: integer read GetAsInteger write SetAsInteger;
   end;
 
 { JsonValidate tests if a string contains a valid json format }
@@ -192,12 +200,15 @@ function JsonNumberValidate(const N: string): Boolean;
 function JsonStringValidate(const S: string): Boolean;
 { JsonStringEncode converts a pascal string to a json string }
 function JsonStringEncode(const S: string): string;
-{ JsonStringDecode converts a json string to a pascal string }
+{ JsonStringEncode converts a json string to a pascal string }
 function JsonStringDecode(const S: string): string;
-{ JsonToXml converts a json string to xml }
+{ JsonStringEncode converts a json string to xml }
 function JsonToXml(const S: string): string;
 
 implementation
+
+var
+  JsonSettings: TFormatSettings;
 
 resourcestring
   SNodeNotCollection = 'Node is not a container';
@@ -317,8 +328,8 @@ begin
   end;
   if C^ = '"'  then
   begin
-    Inc(C);
     repeat
+      Inc(C);
       if C^ = '\' then
       begin
         Inc(C);
@@ -331,9 +342,7 @@ begin
             T.Kind := tkError;
             Exit(False);
           end;
-      end
-      else if not (C^ in [#0, #10, #13, '"']) then
-        Inc(C);
+      end;
     until C^ in [#0, #10, #13, '"'];
     if C^ = '"' then
     begin
@@ -451,12 +460,15 @@ begin
   Parse(S);
 end;
 
-procedure TJsonNode.SaveToStream(Stream: TStream);
+procedure TJsonNode.SaveToStream(Stream: TStream; Formatted:boolean=false);
 var
   S: string;
   I: Int64;
 begin
-  S := Value;
+  if Formatted then
+    S := Value
+  else
+    S := AsJson;
   I := Length(S);
   Stream.Write(PChar(S)^, I);
 end;
@@ -473,13 +485,13 @@ begin
   end;
 end;
 
-procedure TJsonNode.SaveToFile(const FileName: string);
+procedure TJsonNode.SaveToFile(const FileName: string; Formatted:boolean=false);
 var
   F: TFileStream;
 begin
   F := TFileStream.Create(FileName, fmCreate);
   try
-    SaveToStream(F);
+    SaveToStream(F, Formatted);
   finally
     F.Free;
   end;
@@ -534,6 +546,20 @@ begin
     Error;
   end;
   Error;
+end;
+
+function TJsonNode.GetAsInteger: integer;
+begin
+  if FParent = nil then
+    Error(SRootNodeKind);
+  if FKind <> nkNumber then
+  begin
+    Clear;
+    FKind := nkNumber;
+    FValue := '0';
+    Exit(0);
+  end;
+  Result := StrToIntDef(FValue, 0);
 end;
 
 procedure TJsonNode.ParseArray(Node: TJsonNode; var C: PChar);
@@ -682,6 +708,19 @@ begin
   Result := Self;
   while Result.FParent <> nil do
     Result := Result.FParent;
+end;
+
+procedure TJsonNode.SetAsInteger(AValue: integer);
+begin
+  if FParent = nil then
+    Error(SRootNodeKind);
+  if FKind <> nkNumber then
+  begin
+    Clear;
+    FKind := nkNumber;
+  end;
+  FValue := IntToStr(AValue);
+
 end;
 
 procedure TJsonNode.SetKind(Value: TJsonNodeKind);
@@ -845,7 +884,7 @@ begin
     FValue := '0';
     Exit(0);
   end;
-  Result := StrToFloatDef(FValue, 0);
+  Result := StrToFloatDef(FValue, 0, JsonSettings);
 end;
 
 procedure TJsonNode.SetAsNumber(Value: Double);
@@ -857,7 +896,7 @@ begin
     Clear;
     FKind := nkNumber;
   end;
-  FValue := FloatToStr(Value);
+  FValue := FloatToStr(Value, JsonSettings);
 end;
 
 function TJsonNode.Add(Kind: TJsonNodeKind; const Name, Value: string): TJsonNode;
@@ -872,7 +911,7 @@ begin
   if FKind in [nkArray, nkObject] then
   begin
     if FList = nil then
-      FList := TList.Create;
+      FList := TFPList.Create;
     if FKind = nkArray then
       S := IntToStr(FList.Count)
     else
@@ -920,7 +959,7 @@ end;
 
 function TJsonNode.Add(const Name: string; const N: Double): TJsonNode; overload;
 begin
-  Result := Add(nkNumber, Name, FloatToStr(N));
+  Result := Add(nkNumber, Name, FloatToStr(N, JsonSettings));
 end;
 
 function TJsonNode.Add(const Name: string; const S: string): TJsonNode; overload;
@@ -1008,9 +1047,9 @@ begin
     end;
 end;
 
-function TJsonNode.Find(const Path: string): TJsonNode;
+function TJsonNode.Find(const Path: string; AllowCreate:boolean=false): TJsonNode;
 var
-  N: TJsonNode;
+  N,N1: TJsonNode;
   A, B: PChar;
   S: string;
 begin
@@ -1040,9 +1079,16 @@ begin
     if B^ = '/' then
     begin
       SetString(S, A, B - A);
-      N := N.Child(S);
-      if N = nil then
+      N1 := N.Child(S);
+      if N1 = nil then
+        begin
+          if AllowCreate then
+            N := N.Add(S)
+          else
         Exit(nil);
+        end
+      else
+        N := n1;
       A := B + 1;
       B := A;
     end
@@ -1052,13 +1098,51 @@ begin
       if B^ = #0 then
       begin
         SetString(S, A, B - A);
-        N := N.Child(S);
+        N1 := N.Child(S);
+        if N1 = nil then
+          if AllowCreate then
+            N1 := N.Add(S);
+        N := N1
       end;
     end;
   end;
   Result := N;
 end;
 
+function TJsonNode.GetValueDef(const Path: string; _Default: string): String;
+var
+  tmpNode: TJsonNode;
+begin
+  tmpNode := Find(Path);
+  if Assigned(tmpNode) then
+    Result := tmpNode.AsString
+  else
+    Result:= _Default;
+
+end;
+
+function TJsonNode.GetValueDef(const Path: string; _Default: boolean): boolean;
+var
+  tmpNode: TJsonNode;
+begin
+  tmpNode := Find(Path);
+  if Assigned(tmpNode) then
+    Result := tmpNode.AsBoolean
+  else
+    Result:= _Default;
+
+end;
+function TJsonNode.GetValueDef(const Path: string; _Default: integer): integer;
+var
+  tmpNode: TJsonNode;
+begin
+  tmpNode := Find(Path);
+  if Assigned(tmpNode) then
+    Result := tmpNode.AsInteger
+  else
+    Result:= _Default;
+
+end;
 function TJsonNode.Format(const Indent: string): string;
 
   function EnumNodes: string;
@@ -1254,7 +1338,7 @@ end;
 function UnicodeToString(C: LongWord): string; inline;
 begin
   if C = 0 then
-    Result := #0
+    Result := ''
   else if C < $80 then
     Result := Chr(C)
   else if C < $800 then
@@ -1462,4 +1546,7 @@ begin
   end;
 end;
 
+initialization
+  JsonSettings := DefaultFormatSettings;
+  JsonSettings.DecimalSeparator := '.';
 end.

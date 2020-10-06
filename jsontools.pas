@@ -328,8 +328,8 @@ begin
   end;
   if C^ = '"'  then
   begin
+    Inc(C);
     repeat
-      Inc(C);
       if C^ = '\' then
       begin
         Inc(C);
@@ -342,7 +342,9 @@ begin
             T.Kind := tkError;
             Exit(False);
           end;
-      end;
+      end
+      else if not (C^ in [#0, #10, #13, '"']) then
+        Inc(C);
     until C^ in [#0, #10, #13, '"'];
     if C^ = '"' then
     begin
